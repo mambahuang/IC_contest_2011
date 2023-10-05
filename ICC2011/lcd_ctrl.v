@@ -12,14 +12,6 @@ output [5:0] IRB_A;
 output busy;
 output done;
 
-reg IROM_EN;
-reg [5:0] IROM_A;
-reg IRB_RW;
-reg [7:0] IRB_D;
-reg [5:0] IRB_A;
-reg busy;
-reg done;
-
 reg [3:0] curr_state, next_state;
 reg [7:0] image_reg [0:63];
 reg [2:0] pos_x, pos_y;
@@ -37,172 +29,96 @@ SHIFT_RIGHT = 4'd4,
 AVERAGE = 4'd5,
 MIRROR_X = 4'd6,
 MIRROR_Y = 4'd7,
-FETCH = 4'd8,
-READ_DATA = 4'd9,
-IDLE = 4'd10,
-SUM = 4'd11,
-DONE = 4'd12;
+READ_DATA = 4'd8,
+IDLE = 4'd9,
+DONE = 4'd10,
+STANDBY = 4'd11;
 
-// next state logic
-always @(*)
-begin
-    case(curr_state)
-        FETCH:
-        begin
-            next_state = READ_DATA;
-        end
-        READ_DATA:
-        begin
-            if (IROM_A == 6'd63)
-                next_state = IDLE;
-            else
-                next_state = READ_DATA;
-        end
-        IDLE:
-        begin
-            if(cmd_valid)
-            begin
-                case(cmd)
-                    3'b000:
-                    begin
-                        next_state = WRITE;
-                    end
-                    3'b001:
-                    begin
-                        next_state = SHIFT_UP;
-                    end
-                    3'b010:
-                    begin
-                        next_state = SHIFT_DOWN;
-                    end
-                    3'b011:
-                    begin
-                        next_state = SHIFT_LEFT;
-                    end
-                    3'b100:
-                    begin
-                        next_state = SHIFT_RIGHT;
-                    end
-                    3'b101:
-                    begin
-                        next_state = AVERAGE;
-                    end
-                    3'b110:
-                    begin
-                        next_state = MIRROR_X;
-                    end
-                    3'b111:
-                    begin
-                        next_state = MIRROR_Y;
-                    end
-                endcase
-            end
-            else
-            begin
-                next_state = IDLE;
-            end
-        end
-        WRITE:
-        begin
-            if(IRB_A == 6'd63)
-                next_state = DONE;
-            else
-                next_state = WRITE;
-        end
-        SHIFT_UP:
-        begin
-            next_state = IDLE;
-        end
-        SHIFT_DOWN:
-        begin
-            next_state = IDLE;
-        end
-        SHIFT_LEFT:
-        begin
-            next_state = IDLE;    
-        end
-        SHIFT_RIGHT:
-        begin
-            next_state = IDLE;
-        end
-        AVERAGE:
-        begin
-            next_state = SUM;
-        end
-        MIRROR_X:
-        begin
-            next_state = IDLE;
-        end
-        MIRROR_Y:
-        begin
-            next_state = IDLE;
-        end
-        SUM:
-        begin
-            next_state = IDLE;
-        end
-        DONE:
-        begin
-            next_state = DONE;
-        end
-    endcase
+assign index_0 = {pos_y - 3'd1, pos_x - 3'd1};
+assign index_1 = {pos_y - 3'd1, pos_x};
+assign index_2 = {pos_y, pos_x - 3'd1};
+assign index_3 = {pos_y, pos_x};
 
-end
+assign sum = image_reg[index_0] + image_reg[index_1] + image_reg[index_2] + image_reg[index_3];
 
-// state logic
 always @(posedge clk or posedge reset)
 begin
     if (reset)
     begin
-        busy <= 1'b1; // default
-        done <= 1'b0;
-        IROM_EN <= 1'b0; // start to read 
-        IROM_A <= 6'd0;
-        IRB_RW <= 1'b1;
-        IRB_D <= 8'd0;
-        IRB_A <= 6'd0;
-        pos_x <= 3'd0;
-        pos_y <= 3'd0;
-        sum <= 10'd0;
-        index_0 <= 6'd0;
-        index_1 <= 6'd0;
-        index_2 <= 6'd0;
-        index_3 <= 6'd0;
-        curr_state <= FETCH;
+        curr_state <= READ_DATA;
+    end
+    else if (cmd_valid && !busy)
+    begin
+        curr_state <= cmd;
     end
     else
     begin
         curr_state <= next_state;
+    end
+end
 
-        if (next_state == IDLE)
-            busy <= 1'b0;
+// next_state logic
+always @(*)
+begin
+    case(curr_state)
+    READ_DATA:
+    begin
+        if (counter == 6'd63)
+        begin
+            next_state <= IDLE;
+        end
         else
-            busy <= 1'b1;
+        begin
+            next_state <= READ_DATA;
+        end
+    end
+    WRITE:
+    begin
+        if (counter == 6'd63)
+        begin
+            next_state <= DONE;
+        end
+        else
+        begin
+            next_state <= WRITE;
+        end
+    end
+    default: next_state <= STANDBY;
+    endcase
 
+end
+
+// counter
+always @(posedge clk or posedge reset)
+begin
+    if (reset)
+    begin
+        counter <= 6'd0;
+    end
+    else
+    begin
+        if (curr_state == READ_DATA || curr_state == WRITE)
+        begin
+            counter <= counter + 6'd1;
+        end
+        else
+        begin
+            counter <= 6'd0;
+        end
+    end
+
+end
+
+always @(posedge clk or posedge reset)
+begin
+    if (reset)
+    begin
+        pos_x <= 3'd4;
+        pos_y <= 3'd4;
+    end
+    else
+    begin
         case(curr_state)
-        FETCH:
-        begin
-            IROM_A <= {pos_y, pos_x};
-        end
-        READ_DATA:
-        begin
-            image_reg[IROM_A] <= IROM_Q;
-            if (IROM_A == 6'd63)
-            begin
-                IROM_EN <= 1'b1; // shut down IROM
-                pos_x <= 3'd4; // initialize position
-                pos_y <= 3'd4;
-            end
-            else
-            begin
-                busy <= 1'b1;
-                IROM_A <= {pos_y, pos_x} + 6'd1;
-            end
-        end
-        WRITE:
-        begin
-            IRB_D <= image_reg[IRB_A];
-        end
         SHIFT_UP:
         begin
             if (pos_y > 3'd1)
@@ -244,46 +160,32 @@ begin
             image_reg[index_2] <= image_reg[index_3];
             image_reg[index_3] <= image_reg[index_2];
         end
-        IDLE:
-        begin
-
-            if (next_state == WRITE)
-            begin
-                IRB_RW <= 1'b0;
-                pos_x <= 3'd0;
-                pos_y <= 3'd0;
-                IRB_A <= {pos_y, pos_x};
-                {pos_y, pos_x} <= {pos_y, pos_x} + 6'd1;
-            end
-            else
-            begin
-                IRB_RW <= 1'b1;
-            end
-
-            index_0 <= {pos_y - 3'd1, pos_x - 3'd1};
-            index_1 <= {pos_y - 3'd1, pos_x};
-            index_2 <= {pos_y, pos_x - 3'd1};
-            index_3 <= {pos_y, pos_x};
-            
-        end
-        SUM:
-        begin
-            sum <= image_reg[index_0] + image_reg[index_1] + image_reg[index_2] + image_reg[index_3];
-        end
-        DONE:
-        begin
-            busy <= 1'b0;
-            done <= 1'b1;
-        end
         endcase
-
     end
 end
 
-// output logic
-always @(*)
+assign IROM_EN = (curr_state == READ_DATA) ? 1'b0 : 1'b1;
+assign IROM_A = counter;
+
+always @(posedge clk)
 begin
+    case(curr_state)
+    READ_DATA:
+    begin
+        image_reg[counter - 1] <= IROM_Q;
+    end
+    IDLE:
+    begin
+        image_reg[63] <= IROM_Q;
+    end
+    endcase
 
 end
+
+assign IRB_RW = (curr_state == WRITE) ? 1'b0 : 1'b1;
+assign IRB_D = image_reg[counter];
+assign IRB_A = counter;
+assign busy = (curr_state == STANDBY) ? 1'b0 : 1'b1;
+assign done = (curr_state == DONE) ? 1'b1 : 1'b0;
 
 endmodule
