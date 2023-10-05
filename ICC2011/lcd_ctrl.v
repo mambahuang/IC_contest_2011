@@ -34,6 +34,7 @@ IDLE = 4'd9,
 DONE = 4'd10,
 STANDBY = 4'd11;
 
+// index for 4 pixels with pos_x, pos_y as the center
 assign index_0 = {pos_y - 3'd1, pos_x - 3'd1};
 assign index_1 = {pos_y - 3'd1, pos_x};
 assign index_2 = {pos_y, pos_x - 3'd1};
@@ -41,6 +42,7 @@ assign index_3 = {pos_y, pos_x};
 
 assign sum = image_reg[index_0] + image_reg[index_1] + image_reg[index_2] + image_reg[index_3];
 
+// curr_state logic
 always @(posedge clk or posedge reset)
 begin
     if (reset)
@@ -83,12 +85,12 @@ begin
             next_state <= WRITE;
         end
     end
-    default: next_state <= STANDBY;
+    default: next_state <= STANDBY; // STANDBY means no operation
     endcase
 
 end
 
-// counter
+// counter for 64 pixels
 always @(posedge clk or posedge reset)
 begin
     if (reset)
@@ -109,6 +111,7 @@ begin
 
 end
 
+// Do the operation
 always @(posedge clk or posedge reset)
 begin
     if (reset)
@@ -164,9 +167,11 @@ begin
     end
 end
 
+// IROM_EN and IROM_A
 assign IROM_EN = (curr_state == READ_DATA) ? 1'b0 : 1'b1;
 assign IROM_A = counter;
 
+// Read image_reg
 always @(posedge clk)
 begin
     case(curr_state)
@@ -182,8 +187,9 @@ begin
 
 end
 
+// IRB_RW, IRB_D, IRB_A, busy, done
 assign IRB_RW = (curr_state == WRITE) ? 1'b0 : 1'b1;
-assign IRB_D = image_reg[counter];
+assign IRB_D = image_reg[counter]; // write data
 assign IRB_A = counter;
 assign busy = (curr_state == STANDBY) ? 1'b0 : 1'b1;
 assign done = (curr_state == DONE) ? 1'b1 : 1'b0;
